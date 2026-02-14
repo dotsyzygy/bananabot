@@ -3,10 +3,11 @@ use std::env;
 use serenity::async_trait;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
-use serenity::model::guild::Member;
 use serenity::model::guild::Guild;
+use serenity::model::guild::Member;
 use serenity::model::id::{GuildId, RoleId};
 use serenity::prelude::*;
+use tracing::debug;
 
 struct Handler {
     auto_role_id: RoleId,
@@ -21,23 +22,23 @@ impl EventHandler for Handler {
 
     async fn guild_member_addition(&self, ctx: Context, new_member: Member) {
         if let Err(why) = new_member.add_role(&ctx.http, self.auto_role_id).await {
-            println!("Failed to assign role to {}: {why}", new_member.user.name);
+            debug!("Failed to assign role to {}: {why}", new_member.user.name);
         } else {
-            println!("Assigned auto-role to {}", new_member.user.name);
+            debug!("Assigned auto-role to {}", new_member.user.name);
         }
     }
 
     async fn guild_create(&self, ctx: Context, guild: Guild, _is_new: Option<bool>) {
         if !self.allowed_guild_ids.contains(&guild.id) {
-            println!("Leaving unauthorized guild: {} ({})", guild.name, guild.id);
+            debug!("Leaving unauthorized guild: {} ({})", guild.name, guild.id);
             if let Err(why) = guild.id.leave(&ctx.http).await {
-                println!("Failed to leave guild {}: {why}", guild.id);
+                debug!("Failed to leave guild {}: {why}", guild.id);
             }
         }
     }
 
     async fn ready(&self, _ctx: Context, ready: Ready) {
-        println!("{} is connected!", ready.user.name);
+        debug!("{} is connected!", ready.user.name);
     }
 }
 
@@ -63,6 +64,10 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() {
+    if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "DEBUG");
+    }
+    tracing_subscriber::fmt::init();
     let token = env::var("BANANABOT_DISCORD_TOKEN")
         .expect("Expected BANANABOT_DISCORD_TOKEN in environment");
 
@@ -98,11 +103,11 @@ async fn main() {
 
     tokio::spawn(async move {
         shutdown_signal().await;
-        println!("Shutting down...");
+        debug!("Shutting down...");
         shard_manager.shutdown_all().await;
     });
 
     if let Err(why) = client.start().await {
-        println!("Client error: {why}");
+        debug!("Client error: {why}");
     }
 }
