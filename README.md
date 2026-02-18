@@ -5,7 +5,7 @@ A Discord bot written in Rust using [Serenity](https://github.com/serenity-rs/se
 ## Features
 
 - **Auto-role assignment** — Automatically assigns a configured role to users when they join the server.
-- **Reaction roles** — Admins can create a reaction role post via the `/reactionrole` slash command. When users react to the post with the specified emoji they receive a role; removing the reaction removes the role. Configuration is persisted to a JSON file so it survives bot restarts.
+- **Reaction roles** — Admins can create a new reaction role post or point the bot at an existing message via the `/reactionrole` slash command. When users react with the specified emoji they receive a role; removing the reaction removes the role. Configuration is persisted to a JSON file so it survives bot restarts.
 - **Guild allowlist** — Only operates in explicitly allowed guilds; leaves any unauthorized guild it is added to.
 - **Graceful shutdown** — Handles SIGINT/SIGTERM (Unix) and Ctrl+C (Windows).
 
@@ -30,22 +30,22 @@ BananaBot is configured via environment variables:
 
 ### `/reactionrole`
 
-Creates a reaction role post in a specified channel. Only available to users with the **Manage Roles** permission.
+Sets up a reaction role on a channel message. Only available to users with the **Manage Roles** permission.
 
-| Option | Type | Description |
-|---|---|---|
-| `channel` | Channel | Channel to post the reaction role message in |
-| `role` | Role | Role to assign when users react |
-| `emoji` | String | Emoji to react with (e.g. a unicode emoji or custom emoji name) |
-| `message` | String | Text content of the reaction role post |
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `channel` | Channel | Yes | Channel containing (or to post) the reaction role message |
+| `role` | Role | Yes | Role to assign when users react |
+| `emoji` | String | Yes | Emoji to react with (e.g. `🍌` or a custom emoji name) |
+| `message` | String | No | Text content for a **new** post — omit if using `message_id` |
+| `message_id` | String | No | ID of an **existing** message to watch — omit if using `message` |
 
-When the command is run, the bot:
+Provide exactly one of `message` or `message_id`:
 
-1. Posts the message in the chosen channel
-2. Reacts to its own message with the specified emoji
-3. Saves the configuration to `reaction_role.json`
+- **New post** — supply `message` with the text content. The bot creates the post, reacts to it, and starts watching it.
+- **Existing post** — supply `message_id` with the message's ID (enable Developer Mode in Discord settings, then right-click the message → Copy Message ID). The bot reacts to that message and starts watching it.
 
-From that point on, any user who reacts with the same emoji on that message receives the role. Removing the reaction removes the role.
+In both cases the bot reacts to the target message with the emoji, then saves the configuration to `reaction_role.json`. From that point on, any user who reacts with the same emoji receives the role; removing the reaction removes the role.
 
 Only one reaction role post is active at a time. Running the command again replaces the previous configuration.
 
