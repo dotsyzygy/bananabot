@@ -4,7 +4,10 @@
       "WebFetch(domain:www.gnu.org)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(curl:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(git -C /c/dev/repos/bananabot log --oneline -10)",
+      "Bash(git -C /c/dev/repos/bananabot show --stat)",
+      "Bash(git -C /c/dev/repos/bananabot ls-files)"
     ]
   }
 }

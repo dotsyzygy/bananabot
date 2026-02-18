@@ -59,6 +59,7 @@ async fn handle_reactionrole_command(
     let mut role_id = None;
     let mut emoji_str = None;
     let mut message_text = None;
+    let mut existing_message_id = None;
 
     for opt in &options {
         match opt.name {
@@ -82,6 +83,11 @@ async fn handle_reactionrole_command(
                     message_text = Some(s.to_string());
                 }
             }
+            "message_id" => {
+                if let ResolvedValue::String(s) = &opt.value {
+                    existing_message_id = Some(s.to_string());
+                }
+            }
             _ => {}
         }
     }
@@ -89,23 +95,34 @@ async fn handle_reactionrole_command(
     let channel_id = channel_id.ok_or("Missing channel option")?;
     let role_id = role_id.ok_or("Missing role option")?;
     let emoji_str = emoji_str.ok_or("Missing emoji option")?;
-    let message_text = message_text.ok_or("Missing message option")?;
 
-    // Post the message in the specified channel
-    let posted_message = channel_id
-        .send_message(&ctx.http, CreateMessage::new().content(&message_text))
-        .await?;
+    if message_text.is_some() && existing_message_id.is_some() {
+        return Err("Provide either `message` or `message_id`, not both.".into());
+    }
 
-    // React to the posted message with the emoji
     let reaction_type = emoji_str
         .parse::<ReactionType>()
         .unwrap_or_else(|_| ReactionType::Unicode(emoji_str.clone()));
-    posted_message.react(&ctx.http, reaction_type).await?;
+
+    // Either watch an existing message or post a new one
+    let target_message = if let Some(ref id_str) = existing_message_id {
+        let msg_id: u64 = id_str.parse().map_err(|_| "message_id must be a valid integer")?;
+        use serenity::model::id::MessageId;
+        channel_id.message(&ctx.http, MessageId::new(msg_id)).await?
+    } else {
+        let text = message_text.ok_or("Provide either `message` text or a `message_id` to watch.")?;
+        channel_id
+            .send_message(&ctx.http, CreateMessage::new().content(&text))
+            .await?
+    };
+
+    // React to the target message with the emoji
+    target_message.react(&ctx.http, reaction_type).await?;
 
     // Save config to file and update in-memory state
     let config = ReactionRoleConfig {
         channel_id: channel_id.get(),
-        message_id: posted_message.id.get(),
+        message_id: target_message.id.get(),
         role_id: role_id.get(),
         emoji: emoji_str.clone(),
     };
@@ -118,9 +135,10 @@ async fn handle_reactionrole_command(
     }
 
     // Respond with ephemeral confirmation
+    let action = if existing_message_id.is_some() { "now watching" } else { "created" };
     let response = CreateInteractionResponseMessage::new()
         .content(format!(
-            "Reaction role post created in <#{channel_id}>. Users can react with {emoji_str} to get <@&{role_id}>."
+            "Reaction role {action} in <#{channel_id}>. Users can react with {emoji_str} to get <@&{role_id}>."
         ))
         .ephemeral(true);
 
@@ -283,9 +301,17 @@ impl EventHandler for Handler {
                     CreateCommandOption::new(
                         CommandOptionType::String,
                         "message",
-                        "Text content of the reaction role post",
+                        "Text content for a new reaction role post (omit if using message_id)",
                     )
-                    .required(true),
+                    .required(false),
+                )
+                .add_option(
+                    CreateCommandOption::new(
+                        CommandOptionType::String,
+                        "message_id",
+                        "ID of an existing message to watch (omit if using message)",
+                    )
+                    .required(false),
                 );
 
             if let Err(why) = guild_id.create_command(&ctx.http, command).await {
