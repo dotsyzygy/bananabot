@@ -1,13 +1,16 @@
 use std::env;
 use std::path::Path;
 
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use serenity::async_trait;
 use serenity::builder::{
     CreateCommand, CreateCommandOption, CreateInteractionResponse,
     CreateInteractionResponseMessage, CreateMessage,
 };
-use serenity::model::application::{CommandInteraction, CommandOptionType, Interaction, ResolvedValue};
+use serenity::model::application::{
+    CommandInteraction, CommandOptionType, Interaction, ResolvedValue,
+};
 use serenity::model::channel::{Message, Reaction, ReactionType};
 use serenity::model::gateway::Ready;
 use serenity::model::guild::{Guild, Member};
@@ -17,6 +20,18 @@ use serenity::prelude::*;
 use tracing::debug;
 
 const REACTION_ROLE_CONFIG_PATH: &str = "reaction_role.json";
+
+const TRIVIA_FACTS: &[&str] = &[
+    "The term \"roguelike\" comes from the 1980 game [Rogue](https://en.wikipedia.org/wiki/Rogue_(video_game)), which popularized procedural generation and permadeath in games.",
+    "ASCII graphics come from the early days of roguelikes when games were often played on text-based terminals because the hardware couldn't handle complex graphics. The characters were used to represent walls, monsters, items, and more.",
+    "Permadeath in roguelikes was originally a technical limitation due to the limits of storage and memory, but it became a defining feature of the genre anyway.",
+    "Roguelikes are known for very emergent mechanics, most notoriously [Nethack](https://en.wikipedia.org/wiki/NetHack) with its complex item interactions and physics.",
+    "The [IDRC](https://www.roguebasin.com/index.php/IRDC) is an annual event where roguelike developers meet for two days and present on the genre.",
+    "Roguelites helped revive indie games in the 2010s by making the genre more accessible and less punishing, leading to hits like [The Binding of Isaac](https://en.wikipedia.org/wiki/The_Binding_of_Isaac) and [Dead Cells](https://en.wikipedia.org/wiki/Dead_Cells).",
+    "Meta-Progression is still a highly controversial mechanic, with some arguing that it is the crux between roguelike vs roguelite, while others see it as just one of many design choices that can be made within the genre.",
+    "Developers often use mechanics such as weighed probabilities, conditional spawning, run-state awareness, seed safeguards, and many more in order to increase the quality of procedural generation and reduce the chances of unwinnable or boring runs.",
+    "Roguelikes are actually good for your brain! They have been shown to improve problem-solving skills, spatial awareness, and adaptability due to their complex mechanics and unpredictable nature.",
+];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct ReactionRoleConfig {
@@ -38,9 +53,28 @@ fn load_reaction_role_config() -> Option<ReactionRoleConfig> {
     serde_json::from_str(&data).ok()
 }
 
-fn save_reaction_role_config(config: &ReactionRoleConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn save_reaction_role_config(
+    config: &ReactionRoleConfig,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let data = serde_json::to_string_pretty(config)?;
     std::fs::write(REACTION_ROLE_CONFIG_PATH, data)?;
+    Ok(())
+}
+
+async fn handle_trivia_command(
+    ctx: &Context,
+    command: &CommandInteraction,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let fact = TRIVIA_FACTS
+        .choose(&mut rand::thread_rng())
+        .copied()
+        .unwrap_or("No trivia facts available yet. Check back later!");
+
+    let response = CreateInteractionResponseMessage::new().content(fact);
+    command
+        .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+        .await?;
+
     Ok(())
 }
 
@@ -106,11 +140,16 @@ async fn handle_reactionrole_command(
 
     // Either watch an existing message or post a new one
     let target_message = if let Some(ref id_str) = existing_message_id {
-        let msg_id: u64 = id_str.parse().map_err(|_| "message_id must be a valid integer")?;
+        let msg_id: u64 = id_str
+            .parse()
+            .map_err(|_| "message_id must be a valid integer")?;
         use serenity::model::id::MessageId;
-        channel_id.message(&ctx.http, MessageId::new(msg_id)).await?
+        channel_id
+            .message(&ctx.http, MessageId::new(msg_id))
+            .await?
     } else {
-        let text = message_text.ok_or("Provide either `message` text or a `message_id` to watch.")?;
+        let text =
+            message_text.ok_or("Provide either `message` text or a `message_id` to watch.")?;
         channel_id
             .send_message(&ctx.http, CreateMessage::new().content(&text))
             .await?
@@ -135,7 +174,11 @@ async fn handle_reactionrole_command(
     }
 
     // Respond with ephemeral confirmation
-    let action = if existing_message_id.is_some() { "now watching" } else { "created" };
+    let action = if existing_message_id.is_some() {
+        "now watching"
+    } else {
+        "created"
+    };
     let response = CreateInteractionResponseMessage::new()
         .content(format!(
             "Reaction role {action} in <#{channel_id}>. Users can react with {emoji_str} to get <@&{role_id}>."
@@ -171,7 +214,9 @@ impl EventHandler for Handler {
 
         let emoji_matches = match &reaction.emoji {
             ReactionType::Unicode(val) => *val == config.emoji,
-            ReactionType::Custom { name: Some(name), .. } => *name == config.emoji,
+            ReactionType::Custom {
+                name: Some(name), ..
+            } => *name == config.emoji,
             _ => false,
         };
         if !emoji_matches {
@@ -186,7 +231,11 @@ impl EventHandler for Handler {
         };
 
         let role_id = RoleId::new(config.role_id);
-        if let Err(why) = ctx.http.add_member_role(guild_id, user_id, role_id, None).await {
+        if let Err(why) = ctx
+            .http
+            .add_member_role(guild_id, user_id, role_id, None)
+            .await
+        {
             debug!("Failed to add reaction role to {user_id}: {why}");
         } else {
             debug!("Added reaction role to {user_id}");
@@ -209,7 +258,9 @@ impl EventHandler for Handler {
 
         let emoji_matches = match &reaction.emoji {
             ReactionType::Unicode(val) => *val == config.emoji,
-            ReactionType::Custom { name: Some(name), .. } => *name == config.emoji,
+            ReactionType::Custom {
+                name: Some(name), ..
+            } => *name == config.emoji,
             _ => false,
         };
         if !emoji_matches {
@@ -224,7 +275,11 @@ impl EventHandler for Handler {
         };
 
         let role_id = RoleId::new(config.role_id);
-        if let Err(why) = ctx.http.remove_member_role(guild_id, user_id, role_id, None).await {
+        if let Err(why) = ctx
+            .http
+            .remove_member_role(guild_id, user_id, role_id, None)
+            .await
+        {
             debug!("Failed to remove reaction role from {user_id}: {why}");
         } else {
             debug!("Removed reaction role from {user_id}");
@@ -253,16 +308,30 @@ impl EventHandler for Handler {
             return;
         };
 
-        if command.data.name.as_str() == "reactionrole" {
-            if let Err(why) = handle_reactionrole_command(&ctx, &command).await {
-                debug!("Error handling /reactionrole: {why}");
-                let msg = CreateInteractionResponseMessage::new()
-                    .content(format!("Error: {why}"))
-                    .ephemeral(true);
-                let _ = command
-                    .create_response(&ctx.http, CreateInteractionResponse::Message(msg))
-                    .await;
+        match command.data.name.as_str() {
+            "reactionrole" => {
+                if let Err(why) = handle_reactionrole_command(&ctx, &command).await {
+                    debug!("Error handling /reactionrole: {why}");
+                    let msg = CreateInteractionResponseMessage::new()
+                        .content(format!("Error: {why}"))
+                        .ephemeral(true);
+                    let _ = command
+                        .create_response(&ctx.http, CreateInteractionResponse::Message(msg))
+                        .await;
+                }
             }
+            "trivia" => {
+                if let Err(why) = handle_trivia_command(&ctx, &command).await {
+                    debug!("Error handling /trivia: {why}");
+                    let msg = CreateInteractionResponseMessage::new()
+                        .content(format!("Error: {why}"))
+                        .ephemeral(true);
+                    let _ = command
+                        .create_response(&ctx.http, CreateInteractionResponse::Message(msg))
+                        .await;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -316,6 +385,13 @@ impl EventHandler for Handler {
 
             if let Err(why) = guild_id.create_command(&ctx.http, command).await {
                 debug!("Failed to create command for guild {guild_id}: {why}");
+            }
+
+            let trivia_command = CreateCommand::new("trivia")
+                .description("Get a random fun fact about roguelike or roguelite games");
+
+            if let Err(why) = guild_id.create_command(&ctx.http, trivia_command).await {
+                debug!("Failed to create trivia command for guild {guild_id}: {why}");
             }
         }
     }
